@@ -1,18 +1,23 @@
-import random
 import pandas as pd
-from itertools import combinations
 from tkinter import *
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
 
-# ایجاد دیتاست تصادفی از تراکنش‌ها
-def create_random_dataset(num_transactions, num_items):
-    dataset = []
-    for _ in range(num_transactions):
-        transaction = random.sample(range(1, num_items + 1), random.randint(1, num_items))
-        dataset.append(transaction)
-    return dataset
+# تابع برای خواندن دیتاست از فایل
+def read_dataset_from_file(file_path):
+    try:
+        if file_path.endswith('.csv'):
+            df = pd.read_csv(file_path)
+        elif file_path.endswith('.txt'):
+            df = pd.read_csv(file_path, delimiter='\t')
+        else:
+            messagebox.showerror("خطا", "فرمت فایل پشتیبانی نمی‌شود.")
+            return None
+        return df
+    except Exception as e:
+        messagebox.showerror("خطا", f"خطا در خواندن فایل: {e}")
+        return None
 
-# تبدیل دیتاست به فرمت مناسب برای الگوریتم‌ها
+# تابع برای تبدیل دیتاست به فرمت مناسب
 def encode_transactions(dataset):
     unique_items = set(item for transaction in dataset for item in transaction)
     encoded_dataset = []
@@ -63,84 +68,31 @@ def generate_candidates(frequent_itemsets, k):
                 candidates.add(itemset1.union(itemset2))
     return list(candidates)
 
-# الگوریتم AprioriTID
-def run_apriori_tid(dataset, min_support):
-    unique_items = set(item for transaction in dataset for item in transaction)
-    frequent_itemsets = []
-
-    # مرحله ۱: ایجاد مجموعه‌های تک‌عضوی
-    candidates = [frozenset([item]) for item in unique_items]
-    k = 1
-
-    while candidates:
-        # شمارش فراوانی هر کاندید
-        candidate_counts = {}
-        for transaction in dataset:
-            for candidate in candidates:
-                if candidate.issubset(transaction):
-                    candidate_counts[candidate] = candidate_counts.get(candidate, 0) + 1
-
-        # فیلتر کردن بر اساس حداقل پشتیبانی
-        frequent_k_itemsets = [
-            (itemset, support / len(dataset))
-            for itemset, support in candidate_counts.items()
-            if support / len(dataset) >= min_support
-        ]
-        frequent_itemsets.extend(frequent_k_itemsets)
-
-        # ایجاد کاندیدهای جدید برای مرحله بعدی
-        candidates = generate_candidates(frequent_k_itemsets, k)
-        k += 1
-
-    return frequent_itemsets
-
-# الگوریتم AIS
-def run_ais(dataset, min_support):
-    unique_items = set(item for transaction in dataset for item in transaction)
-    frequent_itemsets = []
-
-    # شمارش فراوانی آیتم‌ها
-    item_counts = {item: 0 for item in unique_items}
-    for transaction in dataset:
-        for item in transaction:
-            item_counts[item] += 1
-
-    # فیلتر کردن بر اساس حداقل پشتیبانی
-    frequent_items = [
-        item for item, count in item_counts.items()
-        if count / len(dataset) >= min_support
-    ]
-
-    # ایجاد مجموعه‌های تک‌عضوی
-    frequent_itemsets.extend([(frozenset([item]), item_counts[item] / len(dataset)) for item in frequent_items])
-
-    return frequent_itemsets
-
 # رابط کاربری
 def create_gui():
     def on_run_algorithm():
         try:
-            num_transactions = int(num_transactions_entry.get())
-            num_items = int(num_items_entry.get())
             min_support = float(min_support_entry.get())
         except ValueError:
-            messagebox.showerror("خطا", "لطفاً مقادیر معتبر وارد کنید.")
+            messagebox.showerror("خطا", "لطفاً حداقل پشتیبانی را به صورت عدد وارد کنید.")
             return
 
-        # ایجاد دیتاست
-        global dataset
-        dataset = create_random_dataset(num_transactions, num_items)
-
-        selected_algorithm = algorithm_var.get()
-        if selected_algorithm == "Apriori":
-            result = run_apriori(dataset, min_support)
-        elif selected_algorithm == "AprioriTID":
-            result = run_apriori_tid(dataset, min_support)
-        elif selected_algorithm == "AIS":
-            result = run_ais(dataset, min_support)
+        # خواندن دیتاست
+        if dataset_source.get() == "file":
+            file_path = file_path_entry.get()
+            if not file_path:
+                messagebox.showerror("خطا", "لطفاً آدرس فایل را وارد کنید.")
+                return
+            df = read_dataset_from_file(file_path)
+            if df is None:
+                return
+            dataset = df.values.tolist()
         else:
-            messagebox.showerror("خطا", "الگوریتم انتخاب شده نامعتبر است.")
-            return
+            dataset = manual_dataset_entry.get("1.0", END).strip().split('\n')
+            dataset = [list(map(int, transaction.split(','))) for transaction in dataset]
+
+        # اجرای الگوریتم
+        result = run_apriori(dataset, min_support)
 
         # نمایش نتایج
         result_text.delete(1.0, END)
@@ -148,38 +100,42 @@ def create_gui():
         for itemset, support in result:
             result_text.insert(END, f"{set(itemset)}: {support:.2f}\n")
 
-        # پرسش برای ادامه
-        if messagebox.askyesno("ادامه", "آیا می‌خواهید الگوریتم دیگری اجرا کنید؟"):
-            algorithm_var.set("Apriori")
-            min_support_entry.delete(0, END)
-        else:
-            root.quit()
+    def on_file_select():
+        file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv"), ("Text Files", "*.txt")])
+        file_path_entry.delete(0, END)
+        file_path_entry.insert(0, file_path)
 
     root = Tk()
     root.title("پروژه داده‌کاوی")
 
-    Label(root, text="تعداد تراکنش‌ها:").grid(row=0, column=0)
-    num_transactions_entry = Entry(root)
-    num_transactions_entry.grid(row=0, column=1)
+    # انتخاب منبع دیتاست
+    Label(root, text="منبع دیتاست:").grid(row=0, column=0)
+    dataset_source = StringVar(value="manual")
+    Radiobutton(root, text="ورود دستی دیتاست", variable=dataset_source, value="manual").grid(row=0, column=1)
+    Radiobutton(root, text="خواندن از فایل", variable=dataset_source, value="file").grid(row=0, column=2)
 
-    Label(root, text="تعداد آیتم‌ها:").grid(row=1, column=0)
-    num_items_entry = Entry(root)
-    num_items_entry.grid(row=1, column=1)
+    # ورود دستی دیتاست
+    Label(root, text="دیتاست (هر تراکنش در یک خط و آیتم‌ها با کاما جدا شده‌اند):").grid(row=1, column=0, columnspan=3)
+    manual_dataset_entry = Text(root, height=10, width=50)
+    manual_dataset_entry.grid(row=2, column=0, columnspan=3)
 
-    Label(root, text="انتخاب الگوریتم:").grid(row=2, column=0)
-    algorithm_var = StringVar(value="Apriori")
-    algorithms = ["Apriori", "AprioriTID", "AIS"]
-    algorithm_menu = OptionMenu(root, algorithm_var, *algorithms)
-    algorithm_menu.grid(row=2, column=1)
+    # انتخاب فایل
+    Label(root, text="آدرس فایل:").grid(row=3, column=0)
+    file_path_entry = Entry(root, width=40)
+    file_path_entry.grid(row=3, column=1)
+    Button(root, text="انتخاب فایل", command=on_file_select).grid(row=3, column=2)
 
-    Label(root, text="حداقل پشتیبانی (min_support):").grid(row=3, column=0)
+    # حداقل پشتیبانی
+    Label(root, text="حداقل پشتیبانی (min_support):").grid(row=4, column=0)
     min_support_entry = Entry(root)
-    min_support_entry.grid(row=3, column=1)
+    min_support_entry.grid(row=4, column=1)
 
-    Button(root, text="اجرای الگوریتم", command=on_run_algorithm).grid(row=4, column=0, columnspan=2)
+    # دکمه اجرای الگوریتم
+    Button(root, text="اجرای الگوریتم", command=on_run_algorithm).grid(row=5, column=0, columnspan=3)
 
+    # نمایش نتایج
     result_text = Text(root, height=10, width=50)
-    result_text.grid(row=5, column=0, columnspan=2)
+    result_text.grid(row=6, column=0, columnspan=3)
 
     root.mainloop()
 
